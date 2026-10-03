@@ -1,0 +1,17 @@
+<Project>
+    <PropertyGroup>
+        <ClearOutputDirectory>false</ClearOutputDirectory>
+        <UseArtifactsOutput>true</UseArtifactsOutput>
+        <GameFolder Condition="'$(GameFolder)' == '' and Exists('$(MD_DIRECTORY)')">$(MD_DIRECTORY)</GameFolder>
+        <GameFolder Condition="'$(GameFolder)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Muse Dash</GameFolder>
+        <MelonLoader>$(GameFolder)\MelonLoader</MelonLoader>
+        <MelonNET6>$(MelonLoader)\net6</MelonNET6>
+        <MelonAssemblies>$(MelonLoader)\Il2CppAssemblies</MelonAssemblies>
+        <LangVersion>latest</LangVersion>
+        <ImplicitUsings>enable</ImplicitUsings>
+    </PropertyGroup>
+
+    <ItemDefinitionGroup>
+        <Reference Private="false"/>
+    </ItemDefinitionGroup>
+</Project>
