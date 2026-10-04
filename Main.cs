@@ -5,6 +5,7 @@ namespace PracticeMode;
 public sealed class Main : MelonMod
 {
     private float _nextBindAttempt;
+    private bool _quitting;
     internal static Main Instance { get; private set; }
 
     public override void OnInitializeMelon()
@@ -35,10 +36,12 @@ public sealed class Main : MelonMod
         PreviewMenu.Refresh();
     }
 
+    public override void OnApplicationQuit() => _quitting = true;
+
     public override void OnDeinitializeMelon()
     {
-        PreviewBridge.Shutdown(HarmonyInstance);
-        PreviewMenu.Shutdown();
+        PreviewBridge.Shutdown(HarmonyInstance, _quitting);
+        if (!_quitting) PreviewMenu.Shutdown();
         Instance = null;
     }
 }

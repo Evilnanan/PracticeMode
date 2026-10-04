@@ -5,6 +5,7 @@ using Il2CppAssets.Scripts.GameCore.CharacterMovement;
 using Il2CppAssets.Scripts.GameCore.HostComponent;
 using Il2CppAssets.Scripts.GameCore.GameObjectLogics.GameObjectManager;
 using Il2CppAssets.Scripts.GameCore.Managers;
+using Il2CppAssets.Scripts.PeroTools.Commons;
 using Il2CppFormulaBase;
 using UnityEngine;
 
@@ -21,7 +22,8 @@ internal static class PreviewBridge
     private const string PlaybackName = Prefix + "PONHPBKDMNDNAIIGFFPMFHLGBKDGEHFDNEFN";
     private const BindingFlags Static = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
 
-    private static FieldInfo _prepared, _running, _seeking, _rebuilding, _clock, _clockAnchor;
+    private static FieldInfo _prepared, _running, _seeking, _rebuilding, _clock, _clockAnchor, _audioPaused;
+    private static int _seekDepth;
     private static Func<float> _elapsed;
     private static Action _clearPresses;
     private static DBSkill _ownedSkill;
@@ -51,13 +53,18 @@ internal static class PreviewBridge
             _rebuilding = RequireField(state, "EAOGCJOINDDGLNPEBHHMKNJOAGPCAOPCNKPD", typeof(bool));
             _clock = RequireField(state, "EMMOKJIALCDEJMEOGHNAEBCAAAKCAIBHHENP", typeof(float));
             _clockAnchor = RequireField(runtime, "LIGBJEPFFBKPCKGJNLOCNCCGJADNEEFCEJAL", typeof(float));
+            _audioPaused = RequireField(runtime, "ILGKJHDHPHMIMNHLKADCHACAPDGLIJFCMEPC", typeof(bool));
             _elapsed = RequireMethod(state, "EOJEGBAPELKGNDEMFKDGECICDNOKKFOBNPDO").CreateDelegate<Func<float>>();
             _clearPresses = RequireMethod(playback, "PBBNHJCMLIFEAFGELLKKLCOAODLFKCBHBAHP").CreateDelegate<Action>();
 
             // Patch managed Euterpe methods rather than replacing its seek/clock machinery.
             Patch(harmony, RequireMethod(runtime, "Tick"), nameof(BeforeTick), nameof(AfterTick));
-            Patch(harmony, RequireMethod(runtime, "OAHKOJAHGLGBCHGMAHDFNDMGAJLIJKGPIHPA", typeof(float)),
-                postfix: nameof(AfterSeekAndAudioResume));
+            harmony.Patch(RequireMethod(runtime, "OAHKOJAHGLGBCHGMAHDFNDMGAJLIJKGPIHPA", typeof(float)),
+                prefix: new HarmonyMethod(typeof(PreviewBridge), nameof(BeforeSeekAudio)),
+                postfix: new HarmonyMethod(typeof(PreviewBridge), nameof(AfterSeekAndAudioResume)),
+                finalizer: new HarmonyMethod(typeof(PreviewBridge), nameof(AfterSeekAudioScope)));
+            Patch(harmony, RequireMethod(runtime, "FHMPCIKEJOKKHOBIOCGLNBJCGJIMHPPCCMIE", typeof(AudioSource)),
+                prefix: nameof(ResumeSeekAudio));
             Patch(harmony, RequireMethod(core.GetType("Euterpe.Preview.PreviewGameStartHook", true), "Postfix"),
                 postfix: nameof(AfterGameStart));
             Patch(harmony, RequireMethod(runtime, "MHPKHEHFBCDAMIDLIDPACKJGLDFIEFJBKHJF"), nameof(BeforeExit), nameof(AfterExit));
@@ -193,7 +200,12 @@ internal static class PreviewBridge
     }
 
     private static void BeforeTick() => Refresh();
-    private static void AfterTick() { Refresh(); if ((bool)_running.GetValue(null)) _gameStarted = true; Apply(); }
+    private static void AfterTick()
+    {
+        Refresh();
+        if ((bool)_running.GetValue(null)) _gameStarted = true;
+        Apply();
+    }
     private static void AfterGameStart() { Refresh(); _gameStarted = Active; Apply(); }
     private static void BeforeExit()
     {
@@ -218,10 +230,42 @@ internal static class PreviewBridge
         // Exclude the rebuild duration from the next frame's chart advancement.
         _clockAnchor.SetValue(null, _elapsed());
     }
+    private static void BeforeSeekAudio(out int __state)
+    {
+        __state = _seekDepth;
+        _seekDepth++;
+    }
+    private static void AfterSeekAudioScope(int __state) => _seekDepth = __state;
+
+    private static bool ResumeSeekAudio(AudioSource __0)
+    {
+        if (!Active || _seekDepth == 0 || !(bool)_audioPaused.GetValue(null)) return true;
+        var stage = Singleton<StageBattleComponent>.instance;
+        if (__0 == null || __0.clip == null || stage == null) return true;
+
+        // Native StageBattleComponent.Resume uses Play followed by FixedOffset,
+        // which seeks in samples and honors the chart delay and current offset.
+        // Reuse that sequence instead of seeking a paused source then UnPause.
+        __0.Play();
+        stage.FixedOffset();
+        _audioPaused.SetValue(null, false);
+        return false;
+    }
     private static void AfterInput() => PreviewJudgmentReset.CaptureInput();
 
-    internal static void Shutdown(HarmonyLib.Harmony harmony)
+    internal static void Shutdown(HarmonyLib.Harmony harmony, bool quitting = false)
     {
+        if (quitting)
+        {
+            // Unity may already have destroyed particle systems and UI objects.
+            PreviewJudgmentReset.Clear();
+            PreviewLongVisuals.Clear();
+            _ownedSkill = null;
+            _sleepIndicator = null;
+            Ready = Active = Seeking = false;
+            harmony.UnpatchSelf();
+            return;
+        }
         if (Ready && Active)
         {
             ClearPresses();
