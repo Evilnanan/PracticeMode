@@ -13,9 +13,13 @@ namespace PracticeMode;
 
 internal static class PreviewBridge
 {
-    // These names are private implementation details of the locally inspected 0.10.7 build.
+    // These names are private implementation details of the inspected Core builds.
     // A different build must be re-inspected; silently guessing obfuscated members is unsafe.
-    private static readonly Guid SupportedCore = new("e512ef15-5b5c-45ef-889c-3e6e667b6660");
+    private static readonly Dictionary<Guid, string> SupportedCores = new()
+    {
+        [new Guid("e512ef15-5b5c-45ef-889c-3e6e667b6660")] = "0.10.7",
+        [new Guid("de895b96-6de1-48d3-a235-dd60a9a4e482")] = "0.10.9"
+    };
     private const string Prefix = "NLEFMLCDFFEMGDOKIGDNOCDMEOMFOPLNJOOD.";
     private const string RuntimeName = Prefix + "NOCBOJEDNHBHDJMEKABFAPIIKMBEGDMGMHMI";
     private const string StateName = Prefix + "HMCFGKGBNHGKANEMBJNMHAJBNCNPEMCJEJFC";
@@ -42,8 +46,8 @@ internal static class PreviewBridge
         if (core == null) return;
         try
         {
-            if (core.ManifestModule.ModuleVersionId != SupportedCore)
-                throw new NotSupportedException("This Euterpe.Core build is not supported; expected the inspected Euterpe 0.10.7 build.");
+            if (!SupportedCores.TryGetValue(core.ManifestModule.ModuleVersionId, out var coreVersion))
+                throw new NotSupportedException($"Unsupported Euterpe.Core build {core.ManifestModule.ModuleVersionId}; expected an inspected 0.10.7 or 0.10.9 build.");
             Type state = core.GetType(StateName, true);
             Type runtime = core.GetType(RuntimeName, true);
             Type playback = core.GetType(PlaybackName, true);
@@ -88,7 +92,7 @@ internal static class PreviewBridge
             PreviewLongVisuals.Bind(core, harmony);
             PreviewMenu.Bind(core, harmony);
             Ready = true;
-            MelonLogger.Msg("PracticeMode ready (Euterpe 0.10.7).");
+            MelonLogger.Msg($"PracticeMode ready (Euterpe {coreVersion}).");
         }
         catch (Exception ex)
         {
